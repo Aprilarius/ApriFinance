@@ -87,7 +87,12 @@ class SyncService {
     } else if (sameSyncData(local.data, cloud)) {
       merged = cloud;
     } else if (base != null) {
-      final result = mergeSyncData(base, local.data, cloud);
+      final result = mergeSyncData(
+        base,
+        local.data,
+        cloud,
+        today: repository.clock(),
+      );
       merged = result.data;
       conflicts = result.conflicts;
     } else if (!hasFinanceData(local.data) &&

@@ -277,6 +277,39 @@ void main() {
   );
 
   test(
+    'future income cannot hide a current archived-account conflict',
+    () async {
+      await seed();
+      await expense(a, 10000);
+      await sync(sa);
+      await sync(sb);
+      final source = (await a.load()).accounts.single;
+      await a.saveAccount(
+        id: source.id,
+        expectedVersion: source.version,
+        name: source.name,
+        kind: source.kind,
+        openingMinor: source.openingMinor,
+        archived: true,
+      );
+      await expense(b, 500);
+      await b.saveEntry(
+        kind: EntryKind.income,
+        amountMinor: 500,
+        date: today.add(const Duration(days: 5)),
+        accountId: account,
+        category: 'Доход',
+      );
+      expect(accountBalances(await b.load())[account], 0);
+      expect(accountBalances(await b.load(), through: today)[account], -500);
+      await sync(sa);
+      final result = await sb.preview(password);
+      expect(result.needsChoice, isTrue);
+      expect((await b.load()).accounts.single.archived, isFalse);
+    },
+  );
+
+  test(
     'all losing snapshots remain exportable from recovery history',
     () async {
       await seed();

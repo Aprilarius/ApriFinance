@@ -61,7 +61,12 @@ class SyncMerge {
 
 /// Three-way row merge. Tombstones remain rows. Money is validated as a complete
 /// graph after merging; no partial refund/payment/purchase graphs are committed.
-SyncMerge mergeSyncData(BackupData base, BackupData local, BackupData remote) {
+SyncMerge mergeSyncData(
+  BackupData base,
+  BackupData local,
+  BackupData remote, {
+  DateTime? today,
+}) {
   final b = syncData(base), l = syncData(local), r = syncData(remote);
   final conflicts = <String>[];
   final tables = <String, Object?>{};
@@ -141,7 +146,12 @@ SyncMerge mergeSyncData(BackupData base, BackupData local, BackupData remote) {
           ),
     );
     final balances = accountBalances(snapshot);
-    if (snapshot.accounts.any((a) => a.archived && balances[a.id] != 0)) {
+    final current = today == null
+        ? balances
+        : accountBalances(snapshot, through: today);
+    if (snapshot.accounts.any(
+      (a) => a.archived && (balances[a.id] != 0 || current[a.id] != 0),
+    )) {
       return const SyncMerge(null, [
         'Архивирование счёта противоречит новой операции на другом устройстве',
       ]);
