@@ -2,7 +2,7 @@
 
 Личный учёт финансов для Windows, Android и macOS. Версия 1.0, сборка 21.
 
-[Скачать Windows, Android и macOS](https://github.com/Aprilarius/ApriFinance/releases) · [Отчёт проверки](docs/remembered-sync-1.0.md) · [Настройка синхронизации](cloud/README.ru.md)
+[Скачать Windows, Android и macOS](https://github.com/Aprilarius/ApriFinance/releases/tag/v1.0.0-build21-4f9de68) · [Отчёт проверки](docs/remembered-sync-1.0.md) · [Настройка синхронизации](cloud/README.ru.md)
 
 ![Обзор](docs/images/overview.png)
 
@@ -26,7 +26,7 @@
 | Android | ARM64 APK, Android 7.0/API 24+; подписанный release preview, отладка отключена |
 | Mac | ZIP с ApriFinance.app, macOS 12+; Intel и Apple Silicon |
 
-Файлы и SHA-256 опубликованы в [выпуске сборки 21](https://github.com/Aprilarius/ApriFinance/releases). Перед обновлением сохраните .mfin и пароль отдельно, закройте приложение. Windows EXE без подписи издателя. Mac имеет ad hoc подпись без Developer ID и нотарификации Apple. Подпись CI APK отличается от прежних локальных APK: Android может потребовать удалить старую установку, что удалит её локальные данные.
+Файлы и SHA-256 опубликованы в [выпуске сборки 21](https://github.com/Aprilarius/ApriFinance/releases/tag/v1.0.0-build21-4f9de68). Перед обновлением сохраните .mfin и пароль отдельно, закройте приложение. Windows EXE без подписи издателя. Mac имеет ad hoc подпись без Developer ID и нотарификации Apple. Подпись CI APK отличается от прежних локальных APK: Android может потребовать удалить старую установку, что удалит её локальные данные.
 
 ## Синхронизация и данные
 
