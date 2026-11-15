@@ -135,6 +135,8 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1100, 1000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(app());
+      await tester.tap(find.byKey(const Key('cloud-advanced')));
+      await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const Key('cloud-url')),
         'https://project.supabase.co',
@@ -241,6 +243,51 @@ void main() {
             vm.backup!.inspect((await vm.backup!.latestRecovery())!, password),
       );
       expect(recovery!.tables['accounts']!.single['name'], 'Личная карта');
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'a new conflict preview requires a fresh replacement acknowledgement',
+    (tester) async {
+      await tester.runAsync(conflict);
+      await tester.binding.setSurfaceSize(const Size(1100, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(app());
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('cloud-replace-check')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byKey(const Key('cloud-replace-check')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const Key('cloud-replace-check')),
+            )
+            .value,
+        isTrue,
+      );
+      await tester.runAsync(() => controller.check(password));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const Key('cloud-replace-check')),
+            )
+            .value,
+        isFalse,
+      );
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.byKey(const Key('cloud-choose-remote')),
+            )
+            .onPressed,
+        isNull,
+      );
       expect(tester.takeException(), isNull);
     },
   );

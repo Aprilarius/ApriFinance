@@ -12,6 +12,7 @@ import '../data/reminders_service.dart';
 import '../domain/schedule_math.dart';
 import '../domain/purchase_deadlines.dart' as purchases_calendar;
 import '../data/insights_preferences_repository.dart';
+import '../data/cloud_credentials.dart';
 import 'insights/insights_view_model.dart';
 
 class FinanceViewModel extends ChangeNotifier {
@@ -20,6 +21,7 @@ class FinanceViewModel extends ChangeNotifier {
     this.backup,
     this.reminders,
     this.cloudPreferences,
+    this.cloudCredentials,
     InsightsPreferences? insightsPreferences,
   }) : insights = InsightsViewModel(preferences: insightsPreferences) {
     insights.addListener(_analysisChanged);
@@ -32,6 +34,7 @@ class FinanceViewModel extends ChangeNotifier {
   final FinanceRepository repository;
   final BackupService? backup;
   final File? cloudPreferences;
+  final CloudCredentialStore? cloudCredentials;
   final RemindersService? reminders;
   LedgerSnapshot? snapshot;
   bool loading = true;

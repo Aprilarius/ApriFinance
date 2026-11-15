@@ -53,7 +53,11 @@ class _FinanceScreenState extends State<FinanceScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     if (vm.backup != null) {
-      _cloud = CloudController(vm, preferences: vm.cloudPreferences);
+      _cloud = CloudController(
+        vm,
+        preferences: vm.cloudPreferences,
+        credentials: vm.cloudCredentials,
+      );
       _cloud!.initialize().then((_) {
         if (mounted) setState(() => _cloudReady = true);
       });

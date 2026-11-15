@@ -11,7 +11,9 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
       - name: Install pinned Flutter
         run: |
           git clone --filter=blob:none https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
@@ -22,13 +24,17 @@ jobs:
           flutter --version
           flutter pub get --enforce-lockfile
           flutter analyze --no-pub
+          python3 scripts/test-publication.py
+          python3 scripts/check-publication.py
       - name: Test data and platform contracts
         run: flutter test --no-pub test/domain test/data
       - name: Test native local workflows
-        run: flutter test integration_test/completion_flow_test.dart -d macos
+        run: |
+          flutter test integration_test/completion_flow_test.dart -d macos
+          flutter test integration_test/secure_credentials_test.dart -d macos
       - name: Build preview
         run: bash scripts/build-macos.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ApriFinance-macOS-preview
           path: dist/*
@@ -38,8 +44,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
         with:
           distribution: temurin
           java-version: '17'
@@ -48,15 +56,14 @@ jobs:
           git clone --filter=blob:none https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
           git -C "$RUNNER_TEMP/flutter" checkout ab2912035e160d9cad6306df307576da6128ebdb
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
-      - name: Build Android preview
-        run: |
-          flutter pub get --enforce-lockfile
-          flutter build apk --debug --target-platform android-arm64
-          python3 android/verify_apk.py build/app/outputs/flutter-apk/app-debug.apk
-          mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-debug.apk dist/ApriFinance-1.0.0-Android-arm64-preview.apk
-          sha256sum dist/*.apk > dist/SHA256SUMS-Android.txt
-      - uses: actions/upload-artifact@v4
+      - name: Build signed Android release preview
+        env:
+          APRI_ANDROID_KEYSTORE_BASE64: ${{ secrets.APRI_ANDROID_KEYSTORE_BASE64 }}
+          APRI_ANDROID_STORE_PASSWORD: ${{ secrets.APRI_ANDROID_STORE_PASSWORD }}
+          APRI_ANDROID_KEY_ALIAS: ${{ secrets.APRI_ANDROID_KEY_ALIAS }}
+          APRI_ANDROID_KEY_PASSWORD: ${{ secrets.APRI_ANDROID_KEY_PASSWORD }}
+        run: bash scripts/build-android-preview.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ApriFinance-Android-preview
           path: dist/*
@@ -69,7 +76,9 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
       - name: Install pinned Flutter
         run: |
           git clone --filter=blob:none https://github.com/flutter/flutter.git "$env:RUNNER_TEMP/flutter"
@@ -79,15 +88,20 @@ jobs:
         run: |
           ./scripts/verify.ps1
           ./scripts/test-windows.ps1
+          python scripts/test-publication.py
+          python scripts/check-publication.py
       - name: Install NSIS
         run: choco install nsis --version=3.13 -y --no-progress
       - name: Build Windows installer
         run: |
           ./scripts/build-windows.ps1 -Compiler "${env:ProgramFiles(x86)}/NSIS/makensis.exe"
+          $metadata = Get-Content dist/ApriFinance-1.0.0-Windows-x64-Setup.exe.manifest.json -Raw | ConvertFrom-Json
+          python scripts/check-publication.py --payload $metadata.payload
+          if ($LASTEXITCODE -ne 0) { throw 'Private data detected in payload' }
           $artifact = Get-Item dist/ApriFinance-1.0.0-Windows-x64-Setup.exe
           $hash = (Get-FileHash $artifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $($artifact.Name)" | Set-Content dist/SHA256SUMS-Windows.txt -Encoding ascii
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ApriFinance-Windows-preview
           path: |
@@ -101,8 +115,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: ApriFinance-*-preview
           path: dist
@@ -111,5 +127,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="v1.0.0-build20-${GITHUB_SHA:0:7}"
-          gh release create "$tag" dist/* --target "$GITHUB_SHA" --prerelease --title 'ApriFinance 1.0 — Windows, Android и macOS, сборка 20' --notes-file docs/RELEASE20.md
+          version=$(sed -n 's/^version: //p' pubspec.yaml)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+$ ]]
+          name=${version%+*}
+          build=${version##*+}
+          tag="v$name-build$build-${GITHUB_SHA:0:7}"
+          for file in dist/*; do
+            case "$file" in
+              dist/ApriFinance-1.0.0-Windows-x64-Setup.exe|dist/ApriFinance-1.0.0-Android-arm64-preview.apk|dist/ApriFinance-1.0.0-macOS-*-preview.zip|dist/SHA256SUMS-*.txt|dist/README-macOS.txt) ;;
+              *) echo 'Unexpected file in release staging' >&2; exit 1 ;;
+            esac
+          done
+          gh release create "$tag" dist/* --target "$GITHUB_SHA" --prerelease --title "ApriFinance $name — Windows, Android и macOS, сборка $build" --notes-file "docs/RELEASE$build.md"

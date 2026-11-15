@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import '../domain/models.dart';
 import 'backup_codec.dart';
+import 'cloud_session.dart';
 
 class CloudReply {
   const CloudReply(this.status, this.body);
@@ -136,18 +137,115 @@ class CloudChanged implements Exception {
 }
 
 class SupabaseSnapshotRemote implements SnapshotRemote {
-  SupabaseSnapshotRemote(this.config, {CloudTransport? transport})
-    : transport = transport ?? const IoCloudTransport();
+  SupabaseSnapshotRemote(
+    this.config, {
+    CloudTransport? transport,
+    DateTime Function()? clock,
+    this.onSessionChanged,
+  }) : transport = transport ?? const IoCloudTransport(),
+       clock = clock ?? DateTime.now;
   final CloudConfig config;
   final CloudTransport transport;
-  String? _token, _userId;
-  bool get signedIn => _token != null;
+  final DateTime Function() clock;
+  final Future<void> Function(CloudSession? session)? onSessionChanged;
+  CloudSession? _session;
+  CloudSession? _pendingSession;
+  Future<void>? _refreshing;
+  int _generation = 0;
+  CloudSession? get session => _session;
+  bool get signedIn => _session != null;
   @override
   String get scope {
-    if (_userId == null) {
+    if (_session == null) {
       throw const DomainError('Сначала войдите в облачный аккаунт');
     }
-    return '${config.endpoint}|$_userId';
+    return '${config.endpoint}|${_session!.userId}';
+  }
+
+  void restoreSession(CloudSession value) {
+    if (!value.canRemember) {
+      throw const DomainError('Сохранённый вход устарел. Войдите снова.');
+    }
+    lock();
+    _session = CloudSession.fromJson(value.toJson());
+  }
+
+  Future<void> _invalidate() async {
+    lock();
+    await onSessionChanged?.call(null);
+  }
+
+  Future<void> _refresh() async {
+    final existing = _refreshing;
+    if (existing != null) return existing;
+    final work = _performRefresh();
+    _refreshing = work;
+    try {
+      await work;
+    } finally {
+      if (identical(_refreshing, work)) _refreshing = null;
+    }
+  }
+
+  Future<void> _performRefresh() async {
+    final pending = _pendingSession;
+    if (pending != null) {
+      final generation = _generation;
+      await onSessionChanged?.call(pending);
+      if (generation != _generation) {
+        throw const DomainError('Подключение изменилось');
+      }
+      _session = pending;
+      _pendingSession = null;
+      return;
+    }
+    final previous = _session;
+    if (previous?.refreshToken == null) {
+      await _invalidate();
+      throw const DomainError('Сессия истекла. Войдите снова.');
+    }
+    final generation = _generation;
+    final reply = await _call(
+      '/auth/v1/token?grant_type=refresh_token',
+      'POST',
+      authenticated: false,
+      body: {'refresh_token': previous!.refreshToken},
+    );
+    if (generation != _generation) {
+      throw const DomainError('Подключение изменилось');
+    }
+    if (reply.status == 400 || reply.status == 401) {
+      await _invalidate();
+      throw const DomainError(
+        'Войдите в аккаунт снова. Локальные данные сохранены.',
+      );
+    }
+    if (reply.status != 200) {
+      throw const DomainError(
+        'Не удалось обновить вход. Повторим при подключении к сети.',
+      );
+    }
+    late final CloudSession next;
+    try {
+      next = CloudSession.fromAuth(reply.body, clock(), email: previous.email);
+    } catch (_) {
+      await _invalidate();
+      throw const DomainError(
+        'Облако вернуло некорректную сессию. Войдите снова.',
+      );
+    }
+    if (!next.canRemember || next.userId != previous.userId) {
+      await _invalidate();
+      throw const DomainError('Облако вернуло некорректную сессию');
+    }
+    // Rotation must be saved before another authenticated operation starts.
+    _pendingSession = next;
+    await onSessionChanged?.call(next);
+    if (generation != _generation) {
+      throw const DomainError('Подключение изменилось');
+    }
+    _session = next;
+    _pendingSession = null;
   }
 
   Future<CloudReply> _call(
@@ -159,17 +257,35 @@ class SupabaseSnapshotRemote implements SnapshotRemote {
     if (authenticated && !signedIn) {
       throw const DomainError('Войдите в облачный аккаунт');
     }
-    final reply = await transport.request(
-      config.endpoint.resolve(path),
-      method,
-      {
-        'apikey': config.publicKey,
-        if (authenticated) 'Authorization': 'Bearer $_token',
-      },
-      body,
-    );
+    if (authenticated && _pendingSession != null) await _refresh();
+    if (authenticated &&
+        _session!.expiresAt != null &&
+        !_session!.expiresAt!.isAfter(
+          clock().toUtc().add(const Duration(seconds: 30)),
+        )) {
+      await _refresh();
+    }
+    final generation = _generation;
+    Future<CloudReply> request() =>
+        transport.request(config.endpoint.resolve(path), method, {
+          'apikey': config.publicKey,
+          if (authenticated) 'Authorization': 'Bearer ${_session!.accessToken}',
+        }, body);
+    var reply = await request();
+    if (generation != _generation) {
+      throw const DomainError('Подключение изменилось');
+    }
+    if (authenticated &&
+        reply.status == 401 &&
+        _session?.refreshToken != null) {
+      await _refresh();
+      reply = await request();
+      if (generation != _generation) {
+        throw const DomainError('Подключение изменилось');
+      }
+    }
     if (authenticated && reply.status == 401) {
-      lock();
+      await _invalidate();
       throw const DomainError('Сессия истекла. Войдите снова.');
     }
     return reply;
@@ -177,43 +293,43 @@ class SupabaseSnapshotRemote implements SnapshotRemote {
 
   Future<void> signIn(String email, String password) async {
     lock();
+    final generation = _generation;
     final reply = await _call(
       '/auth/v1/token?grant_type=password',
       'POST',
       authenticated: false,
       body: {'email': email.trim(), 'password': password},
     );
-    final body = reply.body;
-    if (reply.status != 200 ||
-        body is! Map ||
-        body['access_token'] is! String ||
-        body['user'] is! Map) {
+    if (generation != _generation) {
+      throw const DomainError('Подключение изменилось');
+    }
+    if (reply.status != 200) {
       throw const DomainError(
         'Не удалось войти. Проверьте аккаунт, пароль и настройки проекта.',
       );
     }
-    final id = (body['user'] as Map)['id'];
-    if (id is! String ||
-        !RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id) ||
-        (body['access_token']! as String).isEmpty) {
-      throw const DomainError('Облако вернуло некорректную сессию');
-    }
-    _userId = id;
-    _token = body['access_token']! as String;
-    // Passwords and refresh tokens are deliberately never persisted.
+    _session = CloudSession.fromAuth(reply.body, clock(), email: email.trim());
   }
 
   void lock() {
-    _token = null;
-    _userId = null;
+    _generation++;
+    _session = null;
+    _pendingSession = null;
   }
 
   Future<void> signOut() async {
-    try {
-      if (signedIn) await _call('/auth/v1/logout?scope=local', 'POST');
-    } finally {
-      lock();
-    }
+    final previous = _session;
+    await _invalidate();
+    if (previous == null) return;
+    await transport.request(
+      config.endpoint.resolve('/auth/v1/logout?scope=local'),
+      'POST',
+      {
+        'apikey': config.publicKey,
+        'Authorization': 'Bearer ${previous.accessToken}',
+      },
+      null,
+    );
   }
 
   @override

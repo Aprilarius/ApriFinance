@@ -12,6 +12,7 @@ import 'data/backup_service.dart';
 import 'data/app_storage.dart';
 import 'data/reminders_service.dart';
 import 'data/insights_preferences_repository.dart';
+import 'data/native_cloud_credentials.dart';
 import 'ui/finance_view_model.dart';
 
 Future<void> main() async {
@@ -40,6 +41,7 @@ Future<void> main() async {
         legacyFile: File(p.join(directory.path, 'insights.json')),
       ),
       cloudPreferences: File(p.join(directory.path, 'cloud.json')),
+      cloudCredentials: const NativeCloudCredentialStore(),
       reminders: reminders,
       backup: BackupService(
         repository,

@@ -72,3 +72,8 @@ insights.json
 reminders.json
 **/local.properties
 **/GeneratedPluginRegistrant.java
+*.p12
+*.sqlite3
+*.db
+*.enc
+.env.*
