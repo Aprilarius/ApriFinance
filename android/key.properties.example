@@ -1,0 +1,8 @@
+# Copy to android/key.properties, keep private and back up your real keystore.
+# This example contains no actual key or password. Environment variables
+# APRI_ANDROID_KEYSTORE / STORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD override it.
+# Relative storeFile paths resolve against the android directory.
+storeFile=C:/private/aprifinance-release.jks
+storePassword=REPLACE_WITH_YOUR_PASSWORD
+keyAlias=aprifinance
+keyPassword=REPLACE_WITH_YOUR_PASSWORD

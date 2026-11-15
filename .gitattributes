@@ -1,0 +1,9 @@
+* text=auto
+*.dart text eol=lf
+*.md text eol=lf
+*.ps1 text eol=crlf
+*.nsi text eol=crlf
+*.png binary
+*.ttf binary
+*.ico binary
+*.jar binary

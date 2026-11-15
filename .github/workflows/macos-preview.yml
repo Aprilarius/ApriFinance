@@ -1,0 +1,82 @@
+name: Android and macOS preview
+on:
+  push:
+    branches: [main]
+    paths: ['lib/**', 'macos/**', 'android/**', 'pubspec.*', 'scripts/build-macos.sh', '.github/workflows/macos-preview.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Flutter
+        run: |
+          git clone --filter=blob:none https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          git -C "$RUNNER_TEMP/flutter" checkout ab2912035e160d9cad6306df307576da6128ebdb
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Resolve and analyze
+        run: |
+          flutter --version
+          flutter pub get --enforce-lockfile
+          flutter analyze --no-pub
+      - name: Test data and platform contracts
+        run: flutter test --no-pub test/domain test/data
+      - name: Test native local workflows
+        run: flutter test integration_test/completion_flow_test.dart -d macos
+      - name: Build preview
+        run: bash scripts/build-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ApriFinance-macOS-preview
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install pinned Flutter
+        run: |
+          git clone --filter=blob:none https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          git -C "$RUNNER_TEMP/flutter" checkout ab2912035e160d9cad6306df307576da6128ebdb
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Build Android preview
+        run: |
+          flutter pub get --enforce-lockfile
+          flutter build apk --debug --target-platform android-arm64
+          python3 android/verify_apk.py build/app/outputs/flutter-apk/app-debug.apk
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-debug.apk dist/ApriFinance-1.0.0-Android-arm64-preview.apk
+          sha256sum dist/*.apk > dist/SHA256SUMS-Android.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ApriFinance-Android-preview
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+  publish:
+    needs: [build, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ApriFinance-*-preview
+          path: dist
+          merge-multiple: true
+      - name: Publish tested previews
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v1.0.0-build20-${GITHUB_SHA:0:7}"
+          gh release create "$tag" dist/* --target "$GITHUB_SHA" --prerelease --title 'ApriFinance 1.0 — Android и macOS, сборка 20' --notes-file docs/RELEASE20.md
