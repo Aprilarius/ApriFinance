@@ -27,8 +27,8 @@ if (!$RuntimeDirectory) {
     $vsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
     $vsRoot = & $vsWhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
     if (!$vsRoot) { throw 'Visual C++ tools missing; specify RuntimeDirectory' }
-    $versions = Get-ChildItem -LiteralPath (Join-Path $vsRoot 'VC/Redist/MSVC') -Directory | Where-Object { $_.Name -match '^\d+\.\d+\.\d+$' } | Sort-Object { [version]$_.Name } -Descending
-    $RuntimeDirectory = Join-Path $versions[0].FullName 'x64/Microsoft.VC143.CRT'
+    . (Join-Path $PSScriptRoot 'find-runtime.ps1')
+    $RuntimeDirectory = Find-AprifinanceVcRuntime -VisualStudioRoot $vsRoot
 }
 Get-ChildItem -LiteralPath $RuntimeDirectory -Filter '*.dll' -File | ForEach-Object {
     $signature = Get-AuthenticodeSignature -LiteralPath $_.FullName

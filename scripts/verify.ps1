@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 Push-Location $root
 try {
+    & './installer/windows/nsis/test-find-runtime.ps1'
     & flutter pub get --enforce-lockfile
     if ($LASTEXITCODE -ne 0) { throw 'Dependency resolution failed' }
     & dart format --output=none --set-exit-if-changed lib test integration_test tool
