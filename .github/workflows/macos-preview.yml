@@ -1,8 +1,8 @@
-name: Android and macOS preview
+name: ApriFinance preview builds
 on:
   push:
     branches: [main]
-    paths: ['lib/**', 'macos/**', 'android/**', 'pubspec.*', 'scripts/build-macos.sh', '.github/workflows/macos-preview.yml']
+    paths: ['lib/**', 'macos/**', 'android/**', 'windows/**', 'installer/**', 'pubspec.*', 'scripts/**', '.github/workflows/macos-preview.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -62,8 +62,41 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 30
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Flutter
+        run: |
+          git clone --filter=blob:none https://github.com/flutter/flutter.git "$env:RUNNER_TEMP/flutter"
+          git -C "$env:RUNNER_TEMP/flutter" checkout ab2912035e160d9cad6306df307576da6128ebdb
+          "$env:RUNNER_TEMP/flutter/bin" >> $env:GITHUB_PATH
+      - name: Verify Windows behavior
+        run: |
+          ./scripts/verify.ps1
+          ./scripts/test-windows.ps1
+      - name: Install NSIS
+        run: choco install nsis --version=3.13 -y --no-progress
+      - name: Build Windows installer
+        run: |
+          ./scripts/build-windows.ps1 -Compiler "${env:ProgramFiles(x86)}/NSIS/makensis.exe"
+          $artifact = Get-Item dist/ApriFinance-1.0.0-Windows-x64-Setup.exe
+          $hash = (Get-FileHash $artifact.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($artifact.Name)" | Set-Content dist/SHA256SUMS-Windows.txt -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ApriFinance-Windows-preview
+          path: |
+            dist/*.exe
+            dist/SHA256SUMS-Windows.txt
+          if-no-files-found: error
+          retention-days: 30
   publish:
-    needs: [build, android]
+    needs: [build, android, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -79,4 +112,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="v1.0.0-build20-${GITHUB_SHA:0:7}"
-          gh release create "$tag" dist/* --target "$GITHUB_SHA" --prerelease --title 'ApriFinance 1.0 — Android и macOS, сборка 20' --notes-file docs/RELEASE20.md
+          gh release create "$tag" dist/* --target "$GITHUB_SHA" --prerelease --title 'ApriFinance 1.0 — Windows, Android и macOS, сборка 20' --notes-file docs/RELEASE20.md
